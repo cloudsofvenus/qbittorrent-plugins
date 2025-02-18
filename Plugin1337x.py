@@ -4,7 +4,7 @@ from html.parser import HTMLParser
 from helpers import download_file, retrieve_url
 from novaprinter import prettyPrinter
 
-# Precompile the magnet regex pattern
+# Precompile the magnet regex pattern (captures only the magnet URL)
 MAGNET_REGEX = re.compile(r'href="(magnet:[^"]+)"')
 
 class Plugin1337x(object):
@@ -21,11 +21,14 @@ class Plugin1337x(object):
     }
 
     class MyHtmlParser(HTMLParser):
-        # These variables mirror the original definitions.
+
+        def error(self, message):
+            pass
+
         A, TD, TR, HREF, TBODY, TABLE = ('a', 'td', 'tr', 'href', 'tbody', 'table')
 
         def __init__(self, url):
-            super().__init__()
+            HTMLParser.__init__(self)
             self.url = url
             self.row = {}
             self.column = None
@@ -40,26 +43,19 @@ class Plugin1337x(object):
             }
 
         def handle_starttag(self, tag, attrs):
-            # Optimize attribute handling by iterating once
-            params = {}
-            for key, value in attrs:
-                params[key] = value
-
-            if not self.foundResults and 'class' in params and 'search-page' in params['class']:
+            # Use dict(attrs) for compatibility with original behavior
+            params = dict(attrs)
+            if 'search-page' in params.get('class', ''):
                 self.foundResults = True
                 return
-
             if self.foundResults and tag == self.TBODY:
                 self.foundTable = True
                 return
-
             if self.foundTable and tag == self.TR:
                 self.insideRow = True
-                self.row = {}
                 return
-
             if self.insideRow and tag == self.TD:
-                classList = params.get('class', '')
+                classList = params.get('class', None)
                 for columnName, classValue in self.parser_class.items():
                     if classValue in classList:
                         self.column = columnName
@@ -73,9 +69,10 @@ class Plugin1337x(object):
                 if link.startswith('/torrent/'):
                     link = f'{self.url}{link}'
                     torrent_page = retrieve_url(link)
-                    # Use the precompiled regex
+                    # Use precompiled regex to extract the magnet URL
                     match = MAGNET_REGEX.search(torrent_page)
                     if match:
+                        # Replicate original behavior: extract magnet link
                         self.row['link'] = match.group(1)
                         self.row['engine_url'] = self.url
                         self.row['desc_link'] = link
@@ -104,16 +101,15 @@ class Plugin1337x(object):
     def search(self, what, cat='all'):
         parser = self.MyHtmlParser(self.url)
         what = what.replace('%20', '+')
-        category = self.supported_categories.get(cat)
+        category = self.supported_categories[cat]
         page = 1
         while True:
-            if category:
-                page_url = f'{self.url}/category-search/{what}/{category}/{page}/'
-            else:
-                page_url = f'{self.url}/search/{what}/{page}/'
+            # Use same URL formation as original code
+            page_url = (f'{self.url}/category-search/{what}/{category}/{page}/'
+                        if category else f'{self.url}/search/{what}/{page}/')
             html = retrieve_url(page_url)
             parser.feed(html)
-            if '<li class="last">' not in html:
+            if html.find('<li class="last">') == -1:
                 # exists on every page but the last
                 break
             page += 1
