@@ -1,4 +1,4 @@
-# VERSION: 2.2
+# VERSION: 2.3
 # AUTHORS: sa3dany, Alyetama, BurningMop, scadams
 
 # LICENSING INFORMATION
@@ -26,6 +26,8 @@ from html.parser import HTMLParser
 from helpers import download_file, retrieve_url
 from novaprinter import prettyPrinter
 
+# Precompile the magnet regex pattern once for efficiency.
+MAGNET_REGEX = re.compile(r'href="(magnet:[^"]+)"', re.MULTILINE)
 
 class one337x(object):
     url = 'https://1337x.to'
@@ -64,7 +66,7 @@ class one337x(object):
 
         def handle_starttag(self, tag, attrs):
             params = dict(attrs)
-            if 'search-page' in params.get('class', ''):
+            if not self.foundResults and 'search-page' in params.get('class', ''):
                 self.foundResults = True
                 return
             if self.foundResults and tag == self.TBODY:
@@ -74,11 +76,12 @@ class one337x(object):
                 self.insideRow = True
                 return
             if self.insideRow and tag == self.TD:
-                classList = params.get('class', None)
+                classList = params.get('class', '')
                 for columnName, classValue in self.parser_class.items():
                     if classValue in classList:
                         self.column = columnName
                         self.row[self.column] = -1
+                        break
                 return
 
             if self.insideRow and tag == self.A:
@@ -88,12 +91,12 @@ class one337x(object):
                 if link.startswith('/torrent/'):
                     link = f'{self.url}{link}'
                     torrent_page = retrieve_url(link)
-                    magnet_regex = r'href="magnet:.*"'
-                    matches = re.finditer(magnet_regex, torrent_page, re.MULTILINE)
-                    magnet_urls = [x.group() for x in matches]
-                    self.row['link'] = magnet_urls[0].split('"')[1]
-                    self.row['engine_url'] = self.url
-                    self.row['desc_link'] = link
+                    # Use the precompiled regex to extract the magnet link.
+                    match = MAGNET_REGEX.search(torrent_page)
+                    if match:
+                        self.row['link'] = match.group(1)
+                        self.row['engine_url'] = self.url
+                        self.row['desc_link'] = link
 
         def handle_data(self, data):
             if self.insideRow and self.column:
@@ -122,11 +125,15 @@ class one337x(object):
         category = self.supported_categories[cat]
         page = 1
         while True:
-            page_url = f'{self.url}/category-search/{what}/{category}/{page}/' if category else f'{self.url}/search/{what}/{page}/'
+            if category:
+                page_url = f'{self.url}/category-search/{what}/{category}/{page}/'
+            else:
+                page_url = f'{self.url}/search/{what}/{page}/'
             html = retrieve_url(page_url)
             parser.feed(html)
-            if html.find('<li class="last">') == -1:
+            if '<li class="last">' not in html:
                 # exists on every page but the last
                 break
             page += 1
         parser.close()
+
