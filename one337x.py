@@ -22,6 +22,7 @@
 
 import re
 from html.parser import HTMLParser
+import concurrent.futures
 
 from helpers import download_file, retrieve_url
 from novaprinter import prettyPrinter
@@ -43,7 +44,6 @@ class one337x(object):
     }
 
     class MyHtmlParser(HTMLParser):
-
         def error(self, message):
             pass
 
@@ -57,6 +57,7 @@ class one337x(object):
             self.insideRow = False
             self.foundTable = False
             self.foundResults = False
+            self.rows = []  # Accumulate rows from this page.
             self.parser_class = {
                 'name': 'name',
                 'seeds': 'seeds',
@@ -74,6 +75,7 @@ class one337x(object):
                 return
             if self.foundTable and tag == self.TR:
                 self.insideRow = True
+                self.row = {}
                 return
             if self.insideRow and tag == self.TD:
                 classList = params.get('class', '')
@@ -89,14 +91,10 @@ class one337x(object):
                     return
                 link = params[self.HREF]
                 if link.startswith('/torrent/'):
+                    # Instead of fetching the torrent detail page here (which is slow),
+                    # simply store its full URL in the row.
                     link = f'{self.url}{link}'
-                    torrent_page = retrieve_url(link)
-                    # Use the precompiled regex to extract the magnet link.
-                    match = MAGNET_REGEX.search(torrent_page)
-                    if match:
-                        self.row['link'] = match.group(1)
-                        self.row['engine_url'] = self.url
-                        self.row['desc_link'] = link
+                    self.row['desc_link'] = link
 
         def handle_data(self, data):
             if self.insideRow and self.column:
@@ -111,16 +109,22 @@ class one337x(object):
             if self.insideRow and tag == self.TR:
                 self.insideRow = False
                 self.column = None
-                if not self.row:
-                    return
-                prettyPrinter(self.row)
+                if self.row:
+                    self.rows.append(self.row)
                 self.row = {}
 
     def download_torrent(self, info):
         print(download_file(info))
 
+    def fetch_magnet(self, detail_link):
+        # Retrieve the torrent detail page and extract the magnet link.
+        torrent_page = retrieve_url(detail_link)
+        match = MAGNET_REGEX.search(torrent_page)
+        if match:
+            return match.group(1)
+        return None
+
     def search(self, what, cat='all'):
-        parser = self.MyHtmlParser(self.url)
         what = what.replace('%20', '+')
         category = self.supported_categories[cat]
         page = 1
@@ -130,10 +134,31 @@ class one337x(object):
             else:
                 page_url = f'{self.url}/search/{what}/{page}/'
             html = retrieve_url(page_url)
+            # Create a new parser for each page.
+            parser = self.MyHtmlParser(self.url)
             parser.feed(html)
+            parser.close()
+
+            # Process all torrent detail pages concurrently.
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                futures = {}
+                for row in parser.rows:
+                    if 'desc_link' in row:
+                        # Submit a concurrent task to fetch the magnet link.
+                        future = executor.submit(self.fetch_magnet, row['desc_link'])
+                        futures[future] = row
+                    else:
+                        # If there's no detail link, just output the row.
+                        prettyPrinter(row)
+                for future in concurrent.futures.as_completed(futures):
+                    magnet = future.result()
+                    row = futures[future]
+                    if magnet:
+                        row['link'] = magnet
+                        row['engine_url'] = self.url
+                    prettyPrinter(row)
+
+            # Check for pagination: break if this is the last page.
             if '<li class="last">' not in html:
-                # exists on every page but the last
                 break
             page += 1
-        parser.close()
-
