@@ -4,8 +4,8 @@ from html.parser import HTMLParser
 from helpers import download_file, retrieve_url
 from novaprinter import prettyPrinter
 
-# Precompile the magnet regex pattern (captures only the magnet URL)
-MAGNET_REGEX = re.compile(r'href="(magnet:[^"]+)"')
+# Precompile the magnet regex using non‑greedy matching (MULTILINE for consistency)
+MAGNET_REGEX = re.compile(r'href="(magnet:.*?)"', re.MULTILINE)
 
 class Plugin1337x(object):
     url = 'https://1337x.to'
@@ -43,7 +43,6 @@ class Plugin1337x(object):
             }
 
         def handle_starttag(self, tag, attrs):
-            # Use dict(attrs) for compatibility with original behavior
             params = dict(attrs)
             if 'search-page' in params.get('class', ''):
                 self.foundResults = True
@@ -69,10 +68,8 @@ class Plugin1337x(object):
                 if link.startswith('/torrent/'):
                     link = f'{self.url}{link}'
                     torrent_page = retrieve_url(link)
-                    # Use precompiled regex to extract the magnet URL
                     match = MAGNET_REGEX.search(torrent_page)
                     if match:
-                        # Replicate original behavior: extract magnet link
                         self.row['link'] = match.group(1)
                         self.row['engine_url'] = self.url
                         self.row['desc_link'] = link
@@ -104,7 +101,6 @@ class Plugin1337x(object):
         category = self.supported_categories[cat]
         page = 1
         while True:
-            # Use same URL formation as original code
             page_url = (f'{self.url}/category-search/{what}/{category}/{page}/'
                         if category else f'{self.url}/search/{what}/{page}/')
             html = retrieve_url(page_url)
