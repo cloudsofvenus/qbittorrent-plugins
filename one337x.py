@@ -1,13 +1,33 @@
+# VERSION: 2.2
+# AUTHORS: sa3dany, Alyetama, BurningMop, scadams
+
+# LICENSING INFORMATION
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 import re
 from html.parser import HTMLParser
 
 from helpers import download_file, retrieve_url
 from novaprinter import prettyPrinter
 
-# Precompile the magnet regex using non‑greedy matching (MULTILINE for consistency)
-MAGNET_REGEX = re.compile(r'href="(magnet:.*?)"', re.MULTILINE)
 
-class Plugin1337x(object):
+class one337x(object):
     url = 'https://1337x.to'
     name = '1337x'
     supported_categories = {
@@ -68,11 +88,12 @@ class Plugin1337x(object):
                 if link.startswith('/torrent/'):
                     link = f'{self.url}{link}'
                     torrent_page = retrieve_url(link)
-                    match = MAGNET_REGEX.search(torrent_page)
-                    if match:
-                        self.row['link'] = match.group(1)
-                        self.row['engine_url'] = self.url
-                        self.row['desc_link'] = link
+                    magnet_regex = r'href="magnet:.*"'
+                    matches = re.finditer(magnet_regex, torrent_page, re.MULTILINE)
+                    magnet_urls = [x.group() for x in matches]
+                    self.row['link'] = magnet_urls[0].split('"')[1]
+                    self.row['engine_url'] = self.url
+                    self.row['desc_link'] = link
 
         def handle_data(self, data):
             if self.insideRow and self.column:
@@ -101,8 +122,7 @@ class Plugin1337x(object):
         category = self.supported_categories[cat]
         page = 1
         while True:
-            page_url = (f'{self.url}/category-search/{what}/{category}/{page}/'
-                        if category else f'{self.url}/search/{what}/{page}/')
+            page_url = f'{self.url}/category-search/{what}/{category}/{page}/' if category else f'{self.url}/search/{what}/{page}/'
             html = retrieve_url(page_url)
             parser.feed(html)
             if html.find('<li class="last">') == -1:
